@@ -310,6 +310,7 @@ end
 ``` a = \\frac{\\Delta t \\cdot \\beta}{\\rho^{t+1}_i + \\rho^{t+1}_{i+1}} ```
 ``` y = \\phi^t_i - \\frac{\\Delta t}{\\Delta x} \\cdot \\left( p^{t+1}_i - p^{t+1}_{i-1}\\right) - a \\cdot \\phi^t_i \\cdot |\\phi^t_i| ```
 ``` \\phi^{t+1}_i = \\operatorname{_invert_quadratic}(a, y) ```
+TODO: Add gravity contribution!
 """
 function _advance_pipe_mass_flux_internal!(ts::TransientSimulator, pipe_id::Int64)
     rho = ref(ts, :pipe, pipe_id)["density_profile"]
