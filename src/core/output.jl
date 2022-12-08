@@ -4,7 +4,12 @@ mutable struct OutputData
     node::Dict{Int64,Any}
     pipe::Dict{Int64,Any}
     final_state::Dict{Any,Any}
-end 
+end
+
+mutable struct ProfileEntry
+    t::Float64
+    val::Array{Float64, 1}
+end
 
 function OutputData(ts::TransientSimulator)::OutputData 
     initial_time = ref(ts, :current_time)
@@ -20,7 +25,9 @@ function OutputData(ts::TransientSimulator)::OutputData
         node[i] = Dict{String,Any}() 
     end 
     for (i, _) in ref(ts, :pipe)
-        pipe[i] = Dict{String,Any}() 
+        pipe[i] = Dict{String,Any}()
+        pipe[i]["mass_flux_profile"] = [];
+        pipe[i]["density_profile"] = [];
     end 
 
     return OutputData(initial_time, final_time, node, pipe, final_state)
@@ -33,7 +40,8 @@ struct OutputState
     pipe::Dict{Int64,Any}
 end 
 
-function initialize_output_state(ts::TransientSimulator)::OutputState 
+function initialize_output_state(ts::TransientSimulator)::OutputState
+    currentTime = ref(ts, :current_time);
     time_pressure = [ref(ts, :current_time)]
     time_flux = [ref(ts, :current_time)]
     node = Dict{Int64,Any}()
@@ -45,23 +53,36 @@ function initialize_output_state(ts::TransientSimulator)::OutputState
     end 
     for i in keys(get(ref(ts), :pipe, []))
         mass_flux_profile = ref(ts, :pipe, i, "mass_flux_profile")
+        density_profile = ref(ts, :pipe, i, "density_profile")
         pipe[i] = Dict(
             "fr_mass_flux" => [mass_flux_profile[1]],
-            "to_mass_flux" => [mass_flux_profile[end]], 
-        )
+            "to_mass_flux" => [mass_flux_profile[end]],
+            "mass_flux_profile" => [],#ProfileEntry(currentTime, mass_flux_profile)],
+            "density_profile" => [])#,ProfileEntry(currentTime, density_profile)])
     end 
     return OutputState(time_pressure, time_flux, node, pipe)
 end 
 
 function update_output_state!(ts::TransientSimulator, state::OutputState)
+    currentTime = ref(ts, :current_time);
     push!(state.time_pressure, ref(ts, :current_time))
     push!(state.time_flux, ref(ts, :current_time) - params(ts, :dt)/2)
-	for (i, _) in ref(ts, :node)
+    for (i, _) in ref(ts, :node)
         push!(state.node[i]["pressure"], ref(ts, :node, i, "pressure"))
     end
-    for (i, _) in ref(ts, :pipe)
+    for (i, d) in ref(ts, :pipe)
         push!(state.pipe[i]["fr_mass_flux"], ref(ts, :pipe, i, "fr_mass_flux"))
         push!(state.pipe[i]["to_mass_flux"], ref(ts, :pipe, i, "to_mass_flux"))
+
+        if ((length(state.pipe[i]["density_profile"]) == 0) ||
+           (currentTime - (state.pipe[i]["density_profile"][end].t/ts.nominal_values[:time]) > ts.params[:output_dt]))
+            push!(state.pipe[i]["density_profile"],
+                  ProfileEntry(currentTime*ts.nominal_values[:time],
+                               get_pressure(ts, ref(ts, :pipe, i, "density_profile")) .* ts.nominal_values[:pressure]));
+            push!(state.pipe[i]["mass_flux_profile"],
+                  ProfileEntry(currentTime*ts.nominal_values[:time],
+                               ref(ts, :pipe, i, "mass_flux_profile") .* ts.nominal_values[:mass_flux]));
+        end
     end
     return
 end 
@@ -83,6 +104,8 @@ function update_output_data!(ts::TransientSimulator,
         data.pipe[i]["to_mass_flux"] = Spline1D(
             state.time_flux, state.pipe[i]["to_mass_flux"], k=1
         )
+        data.pipe[i]["density_profile"] = state.pipe[i]["density_profile"];
+        data.pipe[i]["mass_flux_profile"] = state.pipe[i]["mass_flux_profile"];
     
         n = pipe["num_discretization_points"]
         dx = pipe["dx"]
@@ -148,6 +171,10 @@ function populate_solution!(ts::TransientSimulator, output::OutputData)
         area = ref(ts, :pipe, key, "area")
         fr_flux_spl = output.pipe[key]["fr_mass_flux"]
         to_flux_spl = output.pipe[key]["to_mass_flux"]
+        density_profile = output.pipe[key]["density_profile"];
+        mass_flux_profile = output.pipe[key]["mass_flux_profile"];
+        sol["pipes"][i]["density_profile"] = output.pipe[key]["density_profile"];
+        sol["pipes"][i]["mass_flux_profile"] = output.pipe[key]["mass_flux_profile"];
         fr_flow = [fr_flux_spl(t) * area for t in times]
         to_flow = [to_flux_spl(t) * area for t in times]
         sol["pipes"][i]["in_flow"] = flow_convertor.(fr_flow)
