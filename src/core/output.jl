@@ -57,8 +57,8 @@ function initialize_output_state(ts::TransientSimulator)::OutputState
         pipe[i] = Dict(
             "fr_mass_flux" => [mass_flux_profile[1]],
             "to_mass_flux" => [mass_flux_profile[end]],
-            "mass_flux_profile" => [],#ProfileEntry(currentTime, mass_flux_profile)],
-            "density_profile" => [])#,ProfileEntry(currentTime, density_profile)])
+            "mass_flux_profile" => [],
+            "density_profile" => []);
     end 
     return OutputState(time_pressure, time_flux, node, pipe)
 end 
@@ -75,13 +75,22 @@ function update_output_state!(ts::TransientSimulator, state::OutputState)
         push!(state.pipe[i]["to_mass_flux"], ref(ts, :pipe, i, "to_mass_flux"))
 
         if ((length(state.pipe[i]["density_profile"]) == 0) ||
-           (currentTime - (state.pipe[i]["density_profile"][end].t/ts.nominal_values[:time]) > ts.params[:output_dt]))
-            push!(state.pipe[i]["density_profile"],
-                  ProfileEntry(currentTime*ts.nominal_values[:time],
-                               get_pressure(ts, ref(ts, :pipe, i, "density_profile")) .* ts.nominal_values[:pressure]));
-            push!(state.pipe[i]["mass_flux_profile"],
-                  ProfileEntry(currentTime*ts.nominal_values[:time],
-                               ref(ts, :pipe, i, "mass_flux_profile") .* ts.nominal_values[:mass_flux]));
+            (currentTime - (state.pipe[i]["density_profile"][end].t/ts.nominal_values[:time]) > ts.params[:output_dt] - 0.1*ts.params[:dt]))
+            if (length(state.pipe[i]["density_profile"]) == 0)
+                push!(state.pipe[i]["density_profile"],
+                      ProfileEntry(0.0,
+                                   get_pressure(ts, ref(ts, :pipe, i, "density_profile")) .* ts.nominal_values[:pressure]));
+                push!(state.pipe[i]["mass_flux_profile"],
+                      ProfileEntry(0.0,
+                                   ref(ts, :pipe, i, "mass_flux_profile") .* ts.nominal_values[:mass_flux]));
+            else
+                push!(state.pipe[i]["density_profile"],
+                      ProfileEntry(round(currentTime*ts.nominal_values[:time]),
+                                   get_pressure(ts, ref(ts, :pipe, i, "density_profile")) .* ts.nominal_values[:pressure]));
+                push!(state.pipe[i]["mass_flux_profile"],
+                      ProfileEntry(round(currentTime*ts.nominal_values[:time]),
+                                   ref(ts, :pipe, i, "mass_flux_profile") .* ts.nominal_values[:mass_flux]));
+            end
         end
     end
     return
